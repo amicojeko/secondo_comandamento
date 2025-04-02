@@ -102,7 +102,7 @@ python -m tkinter
 ## 📚 5. Installa le dipendenze per Vosk e audio
 
 ```bash
-pip install vosk pyaudio
+pip install vosk pyaudio pyyaml
 ```
 
 Se `pyaudio` dà errore, installa `portaudio`:
