@@ -4,29 +4,39 @@ import queue
 import json
 import os
 import time
+import yaml
 
 from vosk import Model, KaldiRecognizer
 import pyaudio
 
-# --- Definizione delle liste e mappatura emoji ---
-animals = ["gatto", "cane", "coniglio", "cavallo"]
-colors  = ["rosso", "verde", "blu", "giallo"]
-fruits  = ["mela", "banana", "arancia", "fragola"]
+# --- Caricamento della configurazione da YAML ---
+def load_config(config_file="config.yaml"):
+    try:
+        with open(config_file, 'r', encoding='utf-8') as file:
+            return yaml.safe_load(file)
+    except Exception as e:
+        print(f"Errore nel caricamento della configurazione: {e}")
+        exit(1)
 
-categories = {
-    "animali": animals,
-    "colori": colors,
-    "frutta": fruits
-}
+# Carica la configurazione
+config = load_config()
 
-emoji_map = {
-    "animali": "🐶",
-    "colori": "🌈",
-    "frutta": "🍌"
-}
+# Inizializza categorie, parole ed emoji dalla configurazione
+categories = {}
+emoji_map = {}
+color_map = {}
+all_keywords = []
+
+# Processa la configurazione
+for category, cat_config in config.items():
+    words = cat_config.get('words', [])
+    categories[category] = words
+    emoji_map[category] = cat_config.get('emoji', '')
+    color_map[category] = cat_config.get('color', 'red')
+    all_keywords.extend(words)
 
 # --- Contatori globali ---
-counters = {"animali": 0, "colori": 0, "frutta": 0}
+counters = {cat: 0 for cat in categories.keys()}
 
 # Coda per comunicare eventi dal thread del riconoscimento vocale alla GUI
 event_queue = queue.Queue()
@@ -38,7 +48,6 @@ if not os.path.exists(MODEL_PATH):
     exit(1)
 
 model = Model(MODEL_PATH)
-all_keywords = animals + colors + fruits
 grammar = json.dumps(all_keywords)
 recognizer = KaldiRecognizer(model, 16000, grammar)
 
@@ -49,8 +58,8 @@ stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000,
 stream.start_stream()
 
 # Variabili per tracciare i conteggi parziali per utterance
-partial_counts = {"animali": 0, "colori": 0, "frutta": 0}
-event_triggered = {"animali": False, "colori": False, "frutta": False}
+partial_counts = {cat: 0 for cat in categories.keys()}
+event_triggered = {cat: False for cat in categories.keys()}
 
 # Funzione del thread di speech recognition
 def speech_recognition_loop():
@@ -62,7 +71,7 @@ def speech_recognition_loop():
             result = json.loads(recognizer.Result())
             final_text = result.get("text", "").strip().lower()
             if final_text:
-                local_counts = {"animali": 0, "colori": 0, "frutta": 0}
+                local_counts = {cat: 0 for cat in categories.keys()}
                 words = final_text.split()
                 for word in words:
                     for cat, word_list in categories.items():
@@ -78,13 +87,13 @@ def speech_recognition_loop():
                             event_queue.put(("trigger", cat, words[0]))
                             event_triggered[cat] = True
                 # Reset per la prossima utterance
-                partial_counts = {"animali": 0, "colori": 0, "frutta": 0}
-                event_triggered = {"animali": False, "colori": False, "frutta": False}
+                partial_counts = {cat: 0 for cat in categories.keys()}
+                event_triggered = {cat: False for cat in categories.keys()}
         else:
             # Elaborazione dei risultati parziali per aggiornamenti in tempo reale
             partial_result = json.loads(recognizer.PartialResult())
             partial_text = partial_result.get("partial", "").strip().lower()
-            local_counts = {"animali": 0, "colori": 0, "frutta": 0}
+            local_counts = {cat: 0 for cat in categories.keys()}
             words = partial_text.split()
             for word in words:
                 for cat, word_list in categories.items():
@@ -111,35 +120,43 @@ def quit_app(event=None):
 root.bind("<Command-q>", quit_app)
 root.bind("<Alt-F4>", quit_app)
 
-# Creazione delle label per ciascuna categoria, posizionate verticalmente al centro
-label_animals = tk.Label(root, text=f"{emoji_map['animali']}: 0", font=("Helvetica", 100), fg="white", bg="black")
-label_colors  = tk.Label(root, text=f"{emoji_map['colori']}: 0", font=("Helvetica", 100), fg="white", bg="black")
-label_fruits  = tk.Label(root, text=f"{emoji_map['frutta']}: 0", font=("Helvetica", 100), fg="white", bg="black")
-
-label_animals.pack(expand=True)
-label_colors.pack(expand=True)
-label_fruits.pack(expand=True)
+# Creazione dinamica delle label per ciascuna categoria
+label_map = {}
+for category in categories.keys():
+    label_map[category] = tk.Label(
+        root,
+        text=f"{emoji_map[category]}: 0",
+        font=("Helvetica", 100),
+        fg="white",
+        bg="black"
+    )
+    label_map[category].pack(expand=True)
 
 flash_in_progress = False
 
-# Funzione per far lampeggiare lo schermo di rosso 3 volte
-def flash_screen(times=3, delay=200):
+# Funzione per far lampeggiare lo schermo con colore specifico della categoria
+def flash_screen(category=None, times=3, delay=200):
     global flash_in_progress
     if flash_in_progress:
         return
     flash_in_progress = True
     original_bg = root["bg"]
+    # Usa il colore specifico della categoria se fornito, altrimenti usa rosso
+    flash_color = color_map.get(category, "red") if category else "red"
+
     def flash(count):
         if count > 0:
-            root.configure(bg="red")
+            root.configure(bg=flash_color)
             root.after(delay, lambda: restore(count))
         else:
             root.configure(bg=original_bg)
             global flash_in_progress
             flash_in_progress = False
+
     def restore(count):
         root.configure(bg=original_bg)
         root.after(delay, lambda: flash(count - 1))
+
     flash(times)
 
 # Funzione per elaborare gli eventi dalla coda e aggiornare l'interfaccia
@@ -151,14 +168,10 @@ def process_queue():
                 cat = event[1]
                 delta = event[2]
                 counters[cat] += delta
-                if cat == "animali":
-                    label_animals.config(text=f"{emoji_map['animali']}: {counters[cat]}")
-                elif cat == "colori":
-                    label_colors.config(text=f"{emoji_map['colori']}: {counters[cat]}")
-                elif cat == "frutta":
-                    label_fruits.config(text=f"{emoji_map['frutta']}: {counters[cat]}")
+                label_map[cat].config(text=f"{emoji_map[cat]}: {counters[cat]}")
             elif event[0] == "trigger":
-                flash_screen()
+                cat = event[1]
+                flash_screen(category=cat)
             event_queue.task_done()
     except queue.Empty:
         pass

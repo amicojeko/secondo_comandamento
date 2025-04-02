@@ -1,0 +1,33 @@
+animali:
+  emoji: 🐶
+  words:
+    - cane
+    - gatto
+    - pesce
+    - uccello
+    - coniglio
+    - mucca
+  command: animale
+  color: red
+colori:
+  emoji: 🌈
+  words:
+    - rosso
+    - blu
+    - verde
+    - giallo
+    - arancione
+    - viola
+  command: colore
+  color: blue
+frutta:
+  emoji: 🍎
+  words:
+    - mela
+    - banana
+    - arancia
+    - uva
+    - fragola
+    - kiwi
+  command: frutta
+  color: green
