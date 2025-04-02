@@ -26,6 +26,7 @@ categories = {}
 emoji_map = {}
 color_map = {}
 all_keywords = []
+command_map = {}  # Add this new dictionary to store commands
 
 # Processa la configurazione
 for category, cat_config in config.items():
@@ -33,6 +34,7 @@ for category, cat_config in config.items():
     categories[category] = words
     emoji_map[category] = cat_config.get('emoji', '')
     color_map[category] = cat_config.get('color', 'red')
+    command_map[category] = cat_config.get('command', category)  # Get command or use category name as default
     all_keywords.extend(words)
 
 # --- Contatori globali ---
@@ -85,6 +87,8 @@ def speech_recognition_loop():
                         # Triggera l'evento solo una volta per categoria per utterance
                         if not event_triggered[cat] and local_counts[cat] > 0:
                             event_queue.put(("trigger", cat, words[0]))
+                            # Add this line to also enqueue a command event
+                            event_queue.put(("command", cat, command_map[cat]))
                             event_triggered[cat] = True
                 # Reset per la prossima utterance
                 partial_counts = {cat: 0 for cat in categories.keys()}
@@ -105,6 +109,7 @@ def speech_recognition_loop():
                     event_queue.put(("update", cat, delta))
                     if not event_triggered[cat] and local_counts[cat] > 0:
                         event_queue.put(("trigger", cat, words[0]))
+                        event_queue.put(("command", cat, command_map[cat]))
                         event_triggered[cat] = True
             partial_counts = local_counts.copy()
         time.sleep(0.01)
@@ -172,6 +177,10 @@ def process_queue():
             elif event[0] == "trigger":
                 cat = event[1]
                 flash_screen(category=cat)
+            elif event[0] == "command":
+                cat = event[1]
+                cmd = event[2]
+                print(f"command {cmd} fired")  # Print command event to console
             event_queue.task_done()
     except queue.Empty:
         pass
